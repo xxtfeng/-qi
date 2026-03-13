@@ -1,92 +1,132 @@
-import streamlit as st
-from PIL import Image, ImageDraw, ImageFont
-import datetime
 import io
-import os
+from flask import Flask, request, send_file, render_template_string
+from PIL import Image, ImageDraw, ImageFont
 
-# 1. 计算月供的逻辑
-def calculate_monthly_payment(principal, annual_rate, months=12):
-    monthly_rate = annual_rate / 12 / 100
-    if monthly_rate == 0: return principal / months
-    payment = (principal * monthly_rate * (1 + monthly_rate)**months) / ((1 + monthly_rate)**months - 1)
-    return payment
+app = Flask(__name__)
 
-# 2. 动态加载字体的函数（关键步骤）
-def get_font(size):
-    # 尝试路径列表
-    font_candidates = [
-        "simsunb.ttf",                                  # 1. 你上传的本地文件
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",# 2. Linux 服务器常见字体
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"
+# 中文字体路径（请根据实际情况修改）
+FONT_PATH = "simhei.ttf"  # 如果使用其他字体，请修改此处
+try:
+    title_font = ImageFont.truetype(FONT_PATH, 40)
+    label_font = ImageFont.truetype(FONT_PATH, 28)
+    value_font = ImageFont.truetype(FONT_PATH, 28)
+except:
+    # 回退到默认字体（不支持中文）
+    title_font = ImageFont.load_default()
+    label_font = ImageFont.load_default()
+    value_font = ImageFont.load_default()
+
+# HTML 表单模板
+HTML_FORM = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>贷款图片生成器</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .container { max-width: 500px; margin: auto; }
+        label { display: block; margin-top: 15px; font-weight: bold; }
+        input[type="text"], input[type="number"] { width: 100%; padding: 8px; box-sizing: border-box; }
+        input[type="submit"] { margin-top: 25px; padding: 10px 20px; background-color: #4CAF50; color: white; border: none; cursor: pointer; font-size: 16px; }
+        input[type="submit"]:hover { background-color: #45a049; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>贷款图片生成器</h2>
+        <p>填写以下信息，生成贷款详情图片</p >
+        <form action="/generate" method="post">
+            <label>姓名：</label>
+            <input type="text" name="name" value="张三" required>
+
+            <label>手机号：</label>
+            <input type="text" name="phone" value="13800138000" required>
+
+            <label>身份证号码：</label>
+            <input type="text" name="id_card" value="123456199001011234" required>
+
+            <label>贷款金额（元）：</label>
+            <input type="number" name="amount" step="0.01" value="100000.00" required>
+
+            <label>年利率（%）：</label>
+            <input type="number" name="rate" step="0.01" value="4.5" required>
+
+            <label>月供（元）：</label>
+            <input type="number" name="monthly_payment" step="0.01" value="4567.89" required>
+
+            <label>日期：</label>
+            <input type="text" name="date" value="2025-03-13" required>
+
+            <label>状态：</label>
+            <input type="text" name="status" value="审批通过" required>
+
+            <input type="submit" value="生成图片">
+        </form>
+    </div>
+</body>
+</html>
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_FORM)
+
+@app.route('/generate', methods=['POST'])
+def generate_image():
+    # 获取表单数据
+    name = request.form.get('name', '').strip()
+    phone = request.form.get('phone', '').strip()
+    id_card = request.form.get('id_card', '').strip()
+    amount = request.form.get('amount', '').strip()
+    rate = request.form.get('rate', '').strip()
+    monthly_payment = request.form.get('monthly_payment', '').strip()
+    date = request.form.get('date', '').strip()
+    status = request.form.get('status', '').strip()
+
+    # 验证必填字段
+    if not all([name, phone, id_card, amount, rate, monthly_payment, date, status]):
+        return "所有字段均为必填", 400
+
+    # 创建图片
+    width, height = 800, 600
+    image = Image.new('RGB', (width, height), color=(255, 255, 255))
+    draw = ImageDraw.Draw(image)
+
+    # 绘制标题
+    title = "贷款信息单"
+    draw.text((50, 30), title, fill=(0, 0, 0), font=title_font)
+
+    # 绘制分隔线
+    draw.line([(50, 90), (750, 90)], fill=(200, 200, 200), width=2)
+
+    # 准备数据行 (字段名, 值)
+    rows = [
+        ("姓名", name),
+        ("手机号", phone),
+        ("身份证号", id_card),
+        ("贷款金额 (元)", amount),
+        ("年利率 (%)", rate),
+        ("月供 (元)", monthly_payment),
+        ("日期", date),
+        ("状态", status),
     ]
-    
-    for path in font_candidates:
-        if os.path.exists(path):
-            return ImageFont.truetype(path, size)
-    
-    # 最后兜底
-    return ImageFont.load_default()
 
-# 3. 生成图片的逻辑
-def generate_loan_image(data):
-    width, height = 800, 650
-    img = Image.new('RGB', (width, height), color=(255, 255, 255))
-    draw = ImageDraw.Draw(img)
+    y_start = 120
+    row_height = 50
+    for i, (label, value) in enumerate(rows):
+        y = y_start + i * row_height
+        # 绘制字段名
+        draw.text((50, y), label + "：", fill=(50, 50, 50), font=label_font)
+        # 绘制字段值（蓝色突出）
+        draw.text((250, y), value, fill=(0, 0, 255), font=value_font)
 
-    # 使用智能加载字体
-    title_font = get_font(40)
-    label_font = get_font(22)
-    value_font = get_font(24)
+    # 保存图片到内存
+    img_io = io.BytesIO()
+    image.save(img_io, 'PNG')
+    img_io.seek(0)
 
-    # 绘制蓝色页眉
-    draw.rectangle([0, 0, width, 80], fill=(24, 144, 255))
-    draw.text((30, 20), "贷款申请审批凭证", fill=(255, 255, 255), font=title_font)
+    return send_file(img_io, mimetype='image/png', as_attachment=False, download_name='loan_info.png')
 
-    # 准备字段
-    monthly_pay = calculate_monthly_payment(data['amount'], data['rate'], data['months'])
-    fields = [
-        ("客户姓名", data['name']),
-        ("联系电话", data['phone']),
-        ("身份证号", data['id_card']),
-        ("贷款总额", f"￥ {data['amount']:,.2f}"),
-        ("年化利率", f"{data['rate']}%"),
-        ("贷款期限", f"{data['months']} 个月"),
-        ("每月还款", f"￥ {monthly_pay:,.2f}"),
-        ("当前状态", data['status']),
-        ("生成时间", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-    ]
-
-    # 绘制内容
-    for i, (label, value) in enumerate(fields):
-        curr_y = 120 + i * 50
-        if i % 2 == 0:
-            draw.rectangle([20, curr_y-5, width-20, curr_y+35], fill=(240, 242, 245))
-        draw.text((50, curr_y), label, fill=(100, 100, 100), font=label_font)
-        
-        val_color = (0, 0, 0)
-        if label == "当前状态":
-            val_color = (82, 196, 26) if "通过" in value else (255, 77, 79)
-        draw.text((250, curr_y), str(value), fill=val_color, font=value_font)
-
-    return img
-
-# 4. Streamlit 界面部分
-st.set_page_config(page_title="贷款生成器")
-st.title("🏦 贷款审批生成系统")
-
-with st.sidebar:
-    st.header("输入参数")
-    name = st.text_input("客户姓名", "张三")
-    phone = st.text_input("联系电话", "13800000000")
-    id_card = st.text_input("身份证号", "440101********0000")
-    amount = st.number_input("金额 (元)", value=50000.0)
-    rate = st.number_input("利率 (%)", value=3.85)
-    months = st.selectbox("期限 (月)", [6, 12, 24, 36, 60], index=1)
-    status = st.radio("状态", ["审核通过 ✅", "审核拒绝 ❌"])
-
-if st.button("🚀 生成凭证图片", type="primary"):
-    res = generate_loan_image({"name":name, "phone":phone, "id_card":id_card, "amount":amount, "rate":rate, "months":months, "status":status})
-    buf = io.BytesIO()
-    res.save(buf, format="PNG")
-    st.image(buf.getvalue())
-    st.download_button("💾 下载图片", buf.getvalue(), "loan.png", "image/png")
+if __name__ == '__main__':
+    app.run(debug=True)
