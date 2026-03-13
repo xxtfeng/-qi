@@ -2,6 +2,7 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 import datetime
 import io
+import os
 
 # 1. 计算月供的逻辑
 def calculate_monthly_payment(principal, annual_rate, months=12):
@@ -16,21 +17,24 @@ def generate_loan_image(data):
     img = Image.new('RGB', (width, height), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
 
+    # 路径处理：确保在云端服务器也能找到字体文件
+    font_file = "simsunb.ttf"
+    font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), font_file)
+
     try:
-        # 使用你确认的 simsunb.ttf 文件
-        font_path = "simsunb.ttf" 
+        # 加载字体
         title_font = ImageFont.truetype(font_path, 40)
         label_font = ImageFont.truetype(font_path, 22)
         value_font = ImageFont.truetype(font_path, 24)
-    except:
-        st.error("找不到 simsunb.ttf 文件，请检查是否与 app.py 在同一目录下")
+    except Exception as e:
+        st.error(f"无法加载字体文件 {font_file}，路径: {font_path}。错误信息: {e}")
         return None
 
     # 绘制蓝色页眉
     draw.rectangle([0, 0, width, 80], fill=(24, 144, 255))
     draw.text((30, 20), "贷款申请审批凭证", fill=(255, 255, 255), font=title_font)
 
-    # 准备字段数据
+    # 计算数据
     monthly_pay = calculate_monthly_payment(data['amount'], data['rate'], data['months'])
     fields = [
         ("客户姓名", data['name']),
@@ -44,15 +48,13 @@ def generate_loan_image(data):
         ("生成时间", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
     ]
 
-    # 循环绘图
+    # 绘制内容
     for i, (label, value) in enumerate(fields):
         curr_y = 120 + i * 50
-        # 隔行背景色
         if i % 2 == 0:
             draw.rectangle([20, curr_y-5, width-20, curr_y+35], fill=(240, 242, 245))
         draw.text((50, curr_y), label, fill=(100, 100, 100), font=label_font)
         
-        # 状态颜色逻辑
         val_color = (0, 0, 0)
         if label == "当前状态":
             val_color = (82, 196, 26) if "通过" in value else (255, 77, 79)
